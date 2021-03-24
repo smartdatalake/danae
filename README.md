@@ -7,6 +7,8 @@ We regard two datasets as similar if (i) they are akin in content, sharing one o
 
 We develop a dataset search engine that supports this combined search, providing also a Web-based user interface to allow users to navigate, search, and explore datasets in the data lake.
 
+You can try a live demo [here](http://danae.magellan2.imsi.athenarc.gr/).
+
 ## License
 
 The contents of this project are licensed under the [Apache License 2.0](https://github.com/SLIPO-EU/loci/blob/master/LICENSE).
