@@ -1,39 +1,40 @@
 from elasticsearch import Elasticsearch
-from elasticsearch.helpers import scan
-from filters import get_encoding, get_separator, collect_header, is_csv_readable, get_num_rows, get_profile, search_field, quantiles
+from filters import get_encoding, get_separator, collect_header, is_csv_readable, get_num_rows, get_profile, search_field, quantiles, add_spatial_stats
 from time import time
 import pandas as pd
+from collections import Counter
+from json import load
+import numpy as np
 
-while True:
+cond = True
+while cond:
     # init connection
-    es = Elasticsearch()
-    es_index = 'danae-eodp'
+    with open('../../settings.json') as f:
+        j = load(f)
+        
+    es = Elasticsearch(j["ElasticSearch"]['es_url'])
+    es_index = j["ElasticSearch"]['es_index']
     
-    
-    types = {'cat': set(['Variable.TYPE_CAT', 'Categorical']),
-             'num': set(['Variable.TYPE_NUM', 'Numeric']), 
-             'date': set(['Variable.TYPE_DATE', 'DateTime'])}
-    
-
     q1 = es.search(index=es_index, size=0, 
-                   body={"query": {"bool" : { "must_not": {"exists": {"field": "profile"}}}}},)
+                   body={"query": {"match" : { "profile.status": "pending"}}},)
     
     if q1['hits']['total']['value'] == 0:
         q2 = es.search(index=es_index, size=0, 
                        body = {"query": { "exists": {"field": "profile"}}})
         q3 = es.search(index=es_index, size=0, 
-                       body = {"query": { "exists": {"field": "profile.report"}}})
+                       body = {"query": {"match" : { "profile.status": "done"}}})
         print('Total Datasets in Lake: {:,}, profiled: {:,}'.format(q2['hits']['total']['value'], q3['hits']['total']['value']))
         break
 
     # Get from ES all datasets without profile (NAIVE: checks profile existance afterwards)
     res = es.search(index=es_index, size=100,
-                   body={"query": {"bool" : { "must_not": {"exists": {"field": "profile"}}}}},)
+                   body={"query": {"match" : { "profile.status": "pending"}}},)
     todo = 0
     done = 0
     errors = 0
+    
     for r in res['hits']['hits']:
-        if 'profile' not in r['_source']:
+        if r['_source']['profile']['status'] == 'pending':
             todo += 1
             # Get the id (needed to update doc afterwards)
             doc_id = r['_id']
@@ -42,6 +43,7 @@ while True:
             # Get the path, to be sent to the profiler
             doc_path = r['_source']['path']
     
+            # print('--------------------------------------------------------------------------------')
             print('\nDOC: {}\t {} \t {} \t {}'.format(todo, doc_id, doc_type, doc_path))
             print('--------------------------------------------------------------------------------')
             
@@ -77,31 +79,56 @@ while True:
                 if profile['num_rows'] <= 100000:
                     df = pd.read_csv(doc_path, encoding=profile['encoding'], sep=profile['separator'], header=0)
                     
-                    for col in df.columns:
+                    drop_col = []
+                    for no, col in enumerate(df.columns):
                         if df[col].dtype == 'object':
                             try:
                                 df[col] = pd.to_datetime(df[col])
                             except ValueError:
                                 pass
+                            
+                        if col.lower() in ['long', 'lng', 'longitude']:
+                            values = df[col] if df[col].dtype == np.float64 else df[col].str.replace(',', '.')
+                            min_y, max_y = pd.to_numeric(values, errors='coerce').apply([min, max]).values
+                            print(min_y, max_y)
+                            drop_col.append((col, no))
+                        if col.lower() in ['latt', 'lat', 'lattitude']:
+                            values = df[col] if df[col].dtype == np.float64 else df[col].str.replace(',', '.')
+                            min_x, max_x = pd.to_numeric(values, errors='coerce').apply([min, max]).values
+                            print(min_x, max_x)
+                            drop_col.append((col, no))
+                    
+                    #sort to get first the furthest column
+                    drop_col = sorted(drop_col, key=lambda x: -x[1])
+                        
+                    #remove the furthest column
+                    if len(drop_col) > 0:
+                        df.drop(drop_col[0][0], axis=1, inplace=True)
                 
                     profile['report'] = get_profile(df)
-                    
+                    if len(drop_col) > 0:
+                        #profile['report']['variables'].append(add_spatial_stats([min_x, max_x, min_y, max_y]))
+                        profile['report']['variables'][drop_col[1][1]] = add_spatial_stats(profile['report']['variables'][drop_col[1][1]], [min_x, max_x, min_y, max_y])
                 
+                    c = Counter()
                     profile['columns'] = {}
                     for i, col in enumerate(df):
                         stats = profile['report']['variables'][i]['stats']
-                        v_type = search_field(stats, 'type')            
+                        v_type = profile['report']['variables'][i]['type']
                         p_missing = float(search_field(stats, 'p_missing'))
+                        c.update([v_type])
                         
-                        if v_type in types['cat'] and p_missing < 0.1:
+                        if v_type == 'Categorical' and p_missing < 0.1:
                             profile['columns'][i] = df[col].astype(str).str.cat(sep=' ')
                             
-                        elif v_type in types['date']:
+                        elif v_type == 'Temporal':
                             profile['report']['variables'][i]['stats'] += quantiles(df.iloc[:,i])
+                    profile['report']['table']['types'] = dict(c)
                 
                 profile['time'] = time()
                 
                 # Update the profile in ES
+                profile['status'] = 'done'
                 es.update(index=es_index, id=doc_id, body={'doc': {'profile': profile}})
                 print('DONE')
                 done += 1

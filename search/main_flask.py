@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 from combined_search import CombinedSearcher
 from time import time
-import pandas as pd
 import flask
 from flask import request
+from json import load
 
 
 app = flask.Flask(__name__)
@@ -22,16 +23,22 @@ print('Time elapsed: {:.2f} sec'.format(t2-t1))
 
 @app.route('/', methods=['POST'])
 def search():
-    ids = request.json['id']
+    ids = request.json['query']
+    params = request.json['params']
     
     print('Starting queries...')
 
-    print(ids)
+    
     t1 = time()
-    out = cs.search(ids, M=30, L=15, k=5)
+    M, L, k = params.values()
+    out = cs.search(ids, M=M, L=L, k=k)
     out = sorted(out, key = lambda x: -x['overall_score'])
     t2 = time()
     print('Time elapsed: {:.2f} sec'.format(t2-t1))
     
     return {'pairs': out}
-app.run(host='0.0.0.0', port=9213)    
+
+if __name__ == '__main__':
+    with open('../settings.json') as f:
+        j = load(f)
+    app.run(host= '0.0.0.0', port=j['ports']['simsearch'])

@@ -1,17 +1,14 @@
 import requests
-import json
 from content_search import ContentSearcher
 from metadata_search import MetadataSearcher
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Search, Q
 from elasticsearch.helpers import scan
 import heapq
+from json import load
 
 from itertools import islice
 
-client = Elasticsearch()
-es_index = 'danae-eodp'
-             
 class CombinedSearcher:
     
     def __init__(self):
@@ -21,22 +18,23 @@ class CombinedSearcher:
     def train(self):
         self.cs.train()
         
-    def __score(self, c, m, w_c=0.5, w_m=0.5):
-        return c * w_c + m * w_m
+    def __score(self, c, m):
+        return c * self.w_c + m * self.w_m 
     
-    def __inner_search(self, res, k, L, M, decay):
+    def __inner_search(self, res, fields, k, L, M, decay):
         Rid = res['_id']
-        content_matches = self.cs.search(res, L, M)
+        #self.w_c = fields['content']['weight'] / (fields['content']['weight'] + fields['metadata']['weight'])
+        #self.w_m = fields['metadata']['weight'] / (fields['content']['weight'] + fields['metadata']['weight'])
+        self.w_c = fields['content']['weight']
+        self.w_m = fields['metadata']['weight']
+        
+        print(fields)
+        content_matches, weights = self.cs.search(res, fields['content']['columns'], L, M)
         cd = {t[0]: t[1] for t in content_matches}
         if not content_matches:
             return None
         
-        
-        R_kwd = res['_source']['metadata']['keywords'] if 'keywords' in res['_source']['metadata'] else ''
-        R_title = res['_source']['metadata']['title'] if 'title' in res['_source']['metadata'] else ''
-        R_desc = res['_source']['metadata']['description'] if 'description' in res['_source']['metadata'] else ''
-        
-        metadata_matches = self.ms.search(R_kwd, R_title, R_desc)
+        metadata_matches = self.ms.search(res, fields['metadata']['fields'])
         md = {t[0]: t[1] for t in metadata_matches}
         
         p = max(len(content_matches), len(metadata_matches))
@@ -49,6 +47,7 @@ class CombinedSearcher:
         for i in range(p):
             UB = self.__score(content_matches[c_i][1] if len(cd) > 0 else 0, 
                               metadata_matches[m_i][1] if len(md) > 0 else 0)
+            
             if c_i < len(content_matches):
                 S, c_score, S_id, S_title = content_matches[c_i] 
                 if S not in examined:
@@ -67,7 +66,8 @@ class CombinedSearcher:
                         c_i += 1
                     UB = self.__score(content_matches[c_i][1], metadata_matches[m_i][1] if len(md) > 0 else 0)
     
-                    item = Item(S, S_id, S_title, c_score, m_score, self.__score(c_score, m_score), self.cs.matchings[S])
+                    item = Item(S, S_id, S_title, c_score, m_score, self.__score(c_score, m_score),
+                                self.cs.get_matching(S), self.ms.get_matching(S))
                     if len(h) < k:
                         heapq.heappush(h, item)
                     else:
@@ -88,14 +88,15 @@ class CombinedSearcher:
                         if S in cd:
                             c_score = cd[S]
                         else:   #calculate now
-                            c_score = self.cs.search_missing(S, Rid)
+                            c_score = self.cs.search_missing(S, Rid, weights)
                     else:
                         c_score = 0                            
                     if m_i < len(metadata_matches) - 1:
                         m_i += 1
                     UB = self.__score(content_matches[c_i][1] if len(cd) > 0 else 0, metadata_matches[m_i][1])
                     
-                    item = Item(S, S_id, S_title, c_score, m_score, self.__score(c_score, m_score), self.cs.matchings[S])
+                    item = Item(S, S_id, S_title, c_score, m_score, self.__score(c_score, m_score),
+                                self.cs.get_matching(S), self.ms.get_matching(S))
                     if len(h) < k:
                         heapq.heappush(h, item)
                     else:
@@ -111,39 +112,31 @@ class CombinedSearcher:
         
     
     def search(self, ids, k=5, L=10, M=30, decay=0.01):
+        with open('../settings.json') as f:
+            j = load(f)
+            
+        client = Elasticsearch(j["ElasticSearch"]['es_url'])
+        es_index = j["ElasticSearch"]['es_index']
         
         out = []
-        if ids is None:
-            query = {"_source": ["metadata.id", "profile.columns", "profile.report.variables"],
-                     "query": { "match_all": {} }, "size": 5}
-            response = scan(client, index=es_index, query=query)
-    
-            for i, res in enumerate(response):
-                if i % 10 == 0:
-                    print("Record {}\r".format(i), end='')
-                    out += self.__inner_search(res, k, L, M, decay)
-
-        else: 
-            for i, id in enumerate(ids):
-                if i % 10 == 0:
-                    print("Record {}\r".format(i), end='')
-                query = {"query": { "match": {"_id": id} }, "size": 1}
-                response = client.search(index=es_index, body=query)
-                res = list(islice(response['hits']['hits'], 1))[0]
-                
-                out += self.__inner_search(res, k, L, M, decay)
+        for (rid, fields) in ids.items():
+            query = {"query": { "match": {"_id": rid} }, "size": 1}
+            response = client.search(index=es_index, body=query)
+            res = list(islice(response['hits']['hits'], 1))[0]
+            
+            out += self.__inner_search(res, fields, k, L, M, decay)
         return out
 
 
 class Item:
-    def __init__(self, S, S_id, S_title, c_score, m_score, o_score, matching):
+    def __init__(self, S, S_id, S_title, c_score, m_score, o_score, c_matching, m_matching):
         self.S = S
         self.S_id = S_id
         self.S_title = S_title
         self.c_score = c_score
         self.m_score = m_score
         self.o_score = o_score
-        self.matching = matching
+        self.matching = {'content': c_matching, 'metadata': m_matching}
 
     def __lt__(self, other):
        if self.o_score < other.o_score:

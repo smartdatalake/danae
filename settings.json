@@ -1,0 +1,12 @@
+{
+   "ElasticSearch":{
+      "es_url":"localhost:9200/",
+      "es_index":"danae-eodp2",
+      "es_field":"name"
+   },
+   "ports":{
+      "publish":9211,
+      "ui":9212,
+      "simsearch":9213
+   }
+}

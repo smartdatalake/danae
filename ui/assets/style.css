@@ -1,14 +1,15 @@
-.slider{
-    width: 70%;
+.nav-item {
+    background-color: #7100FF;
+    /*border-radius: 10px;*/
 }
 
-/*
-.dash-dropdown{
-    width: 10%!important;
+.nav-link {
+    color: #fff;
 }
-*/
 
-
+.nav-link:hover {
+    color: #fff;
+}
 
 .Select-control{
     width:100%!important;
@@ -17,34 +18,6 @@
 .fas {
     font-size: 25px!important;
     cursor: pointer!important;
-}
-
-.tab-content{
-    display: block;
-    /*justify-content: center;*/
-}
-
-
-#query_dataset_tabs-parent {
-    width: 70%;
-}
-
-#query_dataset_tabs {
-    overflow: auto;
-    white-space: nowrap;
-}
-
-#result_dataset_tabs {
-    overflow: auto;
-    white-space: nowrap;
-}
-
-#results_list {
-    width: 40%!important;
-}
-
-#result_dataset_explore-parent{
-    width: 60%!important;
 }
 
 .tab-content--vert{
@@ -65,6 +38,10 @@ th > div {
 
 #menu-bars {
     margin-top: 5px!important;
+}
+
+div[id^='result_data_'] td > input {
+    pointer-events: none;
 }
 
 

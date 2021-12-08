@@ -2,11 +2,14 @@ import numpy as np
 import pandas as pd
 import math
 import requests
+from json import load
 
-url = 'http://localhost:9211/publish'
+with open('../../settings.json') as f:
+    j = load(f)
+
+url = 'http://localhost:{}/publish'.format(j['ports']['publish'])
 
 # Get the data from somewhere
-
 data_catalogue = '/mnt/data/eu_data_portal/metadata/total_3.csv'
 files_path = '/mnt/data/eu_data_portal/files/'
 
@@ -31,6 +34,8 @@ for r in datasets:
     for key in r:
         if type(r[key]) != float or not math.isnan(r[key]):
             d['metadata'][key] = r[key]
+            
+    d['profile'] = {'status': "pending", 'freqs': "pending"}
     
     # submit it
     res = requests.post(url, json = d)
@@ -38,6 +43,6 @@ for r in datasets:
     submitted += 1
     
     if submitted % 200 == 0:
-        print(submitted)
+        print('Datasets submitted: {}\r'.format(submitted), end='')
     
 print('Datasets submitted for publishing: ' + str(submitted))

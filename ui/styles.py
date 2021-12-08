@@ -1,4 +1,5 @@
 style_div = {'display':'flex', 'justify-content': 'center'}
+style_div_none = {'display':'flex', 'justify-content': 'center', 'display': 'none'}
 style_logo = {'color': '#7100FF', 'font-size': '3em', 'font-family': 'Impact, fantasy;', 'font-weight': 'bold'}
 
 style_drop_list = {'display':'flex', 'justify-content': 'center', 'margin-top': '10px', 'margin-bottom': '10px'}

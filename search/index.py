@@ -23,17 +23,24 @@ class RTree:
             self.inv[data] = {}
         self.inv[data][col] = val
         
-        obj = [val[0], 0, val[1], 0] if self.flat else val + val
+        #obj = [val[0], 0, val[1], 0] if self.flat else val + val
+        obj = val if self.flat else val + val
         self.idx.insert(self.d[key], obj)
+    
+    #def nearests(self, X, k):
+    #    return [self.nearest(x, k) for x in X]
     
     def get_columns(self, S):
         if S in self.inv:
             return self.inv[S]
     
     def nearest(self, x, k, objects=False):
-        obj = [x[0], 0, x[1], 0] if self.flat else x*2
+        #obj = [x[0], 0, x[1], 0] if self.flat else x*2
+        obj = x if self.flat else x*2
         if objects:
             return [(self.d.inv[r.id], r.bbox) for r in self.idx.nearest(obj, k, objects)]
         else:
             return [self.d.inv[r] for r in self.idx.nearest(obj, k)]
             
+    def save_model(self, path):
+        self.idx.close()

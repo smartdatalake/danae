@@ -1,6 +1,8 @@
+#!/usr/bin/env python3
 from flask import Flask, request
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Index, Document, Text, Keyword, Date, Object
+from json import load
 
 
 class DataAssetDescription(Document):
@@ -14,9 +16,11 @@ class DataAssetDescription(Document):
     profile = Object
     insights = Object
 
+with open('../../settings.json') as f:
+    j = load(f)
 
-client = Elasticsearch()
-index_name = 'danae-eodp'
+client = Elasticsearch(j["ElasticSearch"]['es_url'])
+index_name = j["ElasticSearch"]['es_index']
 
 es_index = Index(index_name, using=client)
 
@@ -30,7 +34,8 @@ app = Flask('Data Publishing API')
 def publish():
     # parse the request and create the document
     req_data = request.json
-    doc = DataAssetDescription(metadata=req_data['metadata'])
+    #doc = DataAssetDescription(metadata=req_data['metadata'])
+    doc = DataAssetDescription(metadata=req_data['metadata'], profile=req_data['profile'])
     doc.title = req_data['title']
     doc.path = req_data['path']
     doc.dtype = req_data['type']
@@ -44,4 +49,6 @@ def publish():
     return "Published"
 
 if __name__ == '__main__':
-    app.run(debug=True, host= '0.0.0.0', port=9211)
+    with open('../../settings.json') as f:
+        j = load(f)
+    app.run(debug=True, host= '0.0.0.0', port=j['ports']['publish'])
